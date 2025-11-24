@@ -35,3 +35,9 @@ add_test(NAME HampelTests COMMAND test_hampel)
 
 # Installation
 install(DIRECTORY include/ DESTINATION include)
+
+# Print configuration
+message(STATUS "Hampel Filter Configuration:")
+message(STATUS "  Diagnostics: ${HAMPEL_NO_DIAGNOSTICS}")
+message(STATUS "  Compiler: ${CMAKE_C_COMPILER_ID}")
+message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")

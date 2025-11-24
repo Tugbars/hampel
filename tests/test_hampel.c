@@ -11,6 +11,7 @@
 #include <assert.h>
 #include <string.h>
 #include <float.h>
+#include <inttypes.h>
 
 #define TEST_PASSED printf("✓ %s passed\n", __func__)
 #define TEST_FAILED printf("✗ %s FAILED at line %d\n", __func__, __LINE__)
@@ -488,7 +489,7 @@ void test_stress_random()
     hampel9_get_stats(&filter, &stats);
 
     printf("  Stress test stats:\n");
-    printf("    Total updates: %lu\n", stats.total_updates);
+    printf("  Total updates: %llu\n", (unsigned long long)stats.total_updates);
     printf("    NaN rate: %.2f%%\n", stats.nan_rate);
     printf("    Outlier rate: %.2f%%\n", stats.outlier_rate);
     printf("    Fast-path rate: %.2f%%\n", stats.fast_path_rate);

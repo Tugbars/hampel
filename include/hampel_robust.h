@@ -125,14 +125,37 @@ extern "C"
         double fast_path_rate; ///< Percentage of fast-path hits
     } Hampel9_Stats;
 
-    // ============================================================================
-    // Static Constants
-    // ============================================================================
+// ============================================================================
+// Static Constants (Cross-Platform)
+// ============================================================================
 
-    /** @brief Absolute value mask for SIMD fabs (stored in .rodata) */
-    static const __m256 ABS_MASK = {
-        .m256_u32 = {0x7FFFFFFF, 0x7FFFFFFF, 0x7FFFFFFF, 0x7FFFFFFF,
-                     0x7FFFFFFF, 0x7FFFFFFF, 0x7FFFFFFF, 0x7FFFFFFF}};
+/**
+ * @brief Absolute value mask for SIMD fabs (stored in .rodata)
+ * 
+ * Cross-platform initialization for Windows (MSVC/MinGW) and Linux (GCC/Clang)
+ */
+#ifdef _MSC_VER
+// MSVC-specific initialization
+static const __m256 ABS_MASK = {
+    .m256_f32 = {
+        *(float*)&(uint32_t){0x7FFFFFFF}, *(float*)&(uint32_t){0x7FFFFFFF},
+        *(float*)&(uint32_t){0x7FFFFFFF}, *(float*)&(uint32_t){0x7FFFFFFF},
+        *(float*)&(uint32_t){0x7FFFFFFF}, *(float*)&(uint32_t){0x7FFFFFFF},
+        *(float*)&(uint32_t){0x7FFFFFFF}, *(float*)&(uint32_t){0x7FFFFFFF}
+    }
+};
+#else
+// GCC/Clang/MinGW: Use union for initialization
+static const union {
+    uint32_t u[8];
+    __m256 v;
+} _abs_mask_union = {
+    .u = {0x7FFFFFFF, 0x7FFFFFFF, 0x7FFFFFFF, 0x7FFFFFFF,
+          0x7FFFFFFF, 0x7FFFFFFF, 0x7FFFFFFF, 0x7FFFFFFF}
+};
+#define ABS_MASK (_abs_mask_union.v)
+#endif
+
 
 // ============================================================================
 // Core Utility Functions

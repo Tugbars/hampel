@@ -381,125 +381,120 @@ static const union {
      * @note During warmup (first W-1 samples), returns input unchanged
      * @note Thread-safe: Each filter instance is independent
      */
-    FORCE_INLINE __m256 hampel9_simd_update(Hampel9_SIMD *h, __m256 x_batch)
-    {
-#ifndef HAMPEL_NO_DIAGNOSTICS
-        h->total_updates++;
-#endif
-
-        // ========================================================================
-        // Improvement A: Fused Sanitize + Fast-Path Check
-        // ========================================================================
-
-        // Detect NaN (NaN != NaN is always true)
-        __m256 nan_mask = _mm256_cmp_ps(x_batch, x_batch, _CMP_UNORD_Q);
-
-        // Detect infinity using CACHED max_price (Improvement C)
-        __m256 abs_x = fabs_simd(x_batch);
-        __m256 inf_mask = _mm256_cmp_ps(abs_x, h->max_price, _CMP_GT_OQ);
-
-        // Combine bad input masks
-        __m256 bad_input_mask = _mm256_or_ps(nan_mask, inf_mask);
-
-        // Replace bad values with last valid median
-        __m256 x_safe = _mm256_blendv_ps(x_batch, h->last_median, bad_input_mask);
-
-#ifndef HAMPEL_NO_DIAGNOSTICS
-        // Count NaN and inf occurrences
-        int nan_bits = _mm256_movemask_ps(nan_mask);
-        int inf_bits = _mm256_movemask_ps(inf_mask);
-        if (nan_bits)
-            h->nan_samples += __builtin_popcount(nan_bits);
-        if (inf_bits)
-            h->inf_samples += __builtin_popcount(inf_bits);
-#endif
-
-        // ========================================================================
-        // Ring Buffer Update
-        // ========================================================================
-        h->buf[h->idx] = x_safe;
-
-        // Branchless ring buffer index update
-        h->idx = h->idx + 1;
-        int ge = (h->idx >= W);
-        h->idx -= ge * W;
-
-        // Warmup phase: need W samples before filtering
-        if (h->count < W)
-        {
-            h->count++;
-            // Update cache with valid value (Improvement B: selective update)
-            h->last_median = _mm256_blendv_ps(x_safe, h->last_median, bad_input_mask);
-            return x_batch; // Return original (preserves NaN markers)
-        }
-
-        // ========================================================================
-        // Fused Fast-Path Check (Improvement A)
-        // ========================================================================
-        // Check: bad_input OR large_deviation → slow path needed
-        __m256 diff_quick = fabs_simd(_mm256_sub_ps(x_safe, h->last_median));
-        __m256 thresh_quick = _mm256_mul_ps(h->fast_thresh_mult, h->last_mad);
-        __m256 large_dev_mask = _mm256_cmp_ps(diff_quick, thresh_quick, _CMP_GT_OS);
-
-        // Combine: any bad input or large deviation → need slow path
-        __m256 needs_slow = _mm256_or_ps(bad_input_mask, large_dev_mask);
-        int slow_path_needed = _mm256_movemask_ps(needs_slow) != 0;
-
-        if (!slow_path_needed)
-        {
-// Fast-path: All clean, all within threshold
-#ifndef HAMPEL_NO_DIAGNOSTICS
-            h->fast_path_hits++;
-#endif
-            return x_safe;
-        }
-
-        // ========================================================================
-        // Slow Path: Full Robust Filtering
-        // ========================================================================
-
-        // Pre-load all buffer values into registers
-        __m256 b0 = h->buf[0];
-        __m256 b1 = h->buf[1];
-        __m256 b2 = h->buf[2];
-        __m256 b3 = h->buf[3];
-        __m256 b4 = h->buf[4];
-        __m256 b5 = h->buf[5];
-        __m256 b6 = h->buf[6];
-        __m256 b7 = h->buf[7];
-        __m256 b8 = h->buf[8];
-
-        // Compute median and MAD (pure register-level operations)
-        __m256 med, mad;
-        median_and_mad9_simd(b0, b1, b2, b3, b4, b5, b6, b7, b8, &med, &mad);
-
-        // Outlier detection: |x - median| > NSIGMA * K * MAD
-        __m256 diff = fabs_simd(_mm256_sub_ps(x_safe, med));
-        __m256 thresh = _mm256_mul_ps(h->nsigma_k, mad);
-
-        // Use _CMP_GT_OS for signaling NaN handling (robustness)
-        __m256 outlier_mask = _mm256_cmp_ps(diff, thresh, _CMP_GT_OS);
-
-#ifndef HAMPEL_NO_DIAGNOSTICS
-        int outlier_bits = _mm256_movemask_ps(outlier_mask);
-        if (outlier_bits)
-            h->outliers += __builtin_popcount(outlier_bits);
-#endif
-
-        // Replace outliers with median
-        __m256 filtered = _mm256_blendv_ps(x_safe, med, outlier_mask);
-
-        // ========================================================================
-        // Improvement B: Selective Cache Update (Bug Fix!)
-        // ========================================================================
-        // Only update cache for lanes that had valid input
-        // This prevents corruption when a lane has intermittent NaN inputs
-        h->last_median = _mm256_blendv_ps(filtered, h->last_median, bad_input_mask);
-        h->last_mad = _mm256_blendv_ps(mad, h->last_mad, bad_input_mask); // ← CRITICAL FIX!
-
-        // Restore NaN markers in output (downstream needs to know data was missing)
-        return _mm256_blendv_ps(filtered, x_batch, nan_mask);
+    FORCE_INLINE __m256 hampel9_simd_update(Hampel9_SIMD *h, __m256 x_batch) {
+    #ifndef HAMPEL_NO_DIAGNOSTICS
+    h->total_updates++;
+    #endif
+    
+    // ========================================================================
+    // Improvement A: Fused Sanitize + Fast-Path Check
+    // ========================================================================
+    
+    // Detect NaN (NaN != NaN is always true)
+    __m256 nan_mask = _mm256_cmp_ps(x_batch, x_batch, _CMP_UNORD_Q);
+    
+    // Detect infinity using CACHED max_price (Improvement C)
+    __m256 abs_x = fabs_simd(x_batch);
+    __m256 inf_mask = _mm256_cmp_ps(abs_x, h->max_price, _CMP_GT_OQ);
+    
+    // Combine bad input masks
+    __m256 bad_input_mask = _mm256_or_ps(nan_mask, inf_mask);
+    
+    // Replace bad values with last valid median
+    __m256 x_safe = _mm256_blendv_ps(x_batch, h->last_median, bad_input_mask);
+    
+    #ifndef HAMPEL_NO_DIAGNOSTICS
+    // Count NaN and inf occurrences
+    int nan_bits = _mm256_movemask_ps(nan_mask);
+    int inf_bits = _mm256_movemask_ps(inf_mask);
+    if (nan_bits) h->nan_samples += __builtin_popcount(nan_bits);
+    if (inf_bits) h->inf_samples += __builtin_popcount(inf_bits);
+    #endif
+    
+    // ========================================================================
+    // Ring Buffer Update
+    // ========================================================================
+    h->buf[h->idx] = x_safe;
+    
+    // Branchless ring buffer index update
+    h->idx = h->idx + 1;
+    int ge = (h->idx >= W);
+    h->idx -= ge * W;
+    
+    // Warmup phase: need W samples before filtering
+    if (h->count < W) {
+        h->count++;
+        // Update cache with valid value (Improvement B: selective update)
+        h->last_median = _mm256_blendv_ps(x_safe, h->last_median, bad_input_mask);
+        return x_batch;  // Return original (preserves NaN markers)
     }
+    
+    // ========================================================================
+    // Fused Fast-Path Check (Improvement A)
+    // ========================================================================
+    // Check: bad_input OR large_deviation → slow path needed
+    __m256 diff_quick = fabs_simd(_mm256_sub_ps(x_safe, h->last_median));
+    __m256 thresh_quick = _mm256_mul_ps(h->fast_thresh_mult, h->last_mad);
+    __m256 large_dev_mask = _mm256_cmp_ps(diff_quick, thresh_quick, _CMP_GT_OS);
+    
+    // Combine: any bad input or large deviation → need slow path
+    __m256 needs_slow = _mm256_or_ps(bad_input_mask, large_dev_mask);
+    int slow_path_needed = _mm256_movemask_ps(needs_slow) != 0;
+    
+    if (!slow_path_needed) {
+        // Fast-path: All clean, all within threshold
+        #ifndef HAMPEL_NO_DIAGNOSTICS
+        h->fast_path_hits++;
+        #endif
+        // ✅ CRITICAL FIX: Restore NaN markers even in fast-path
+        return _mm256_blendv_ps(x_safe, x_batch, nan_mask);
+    }
+    
+    // ========================================================================
+    // Slow Path: Full Robust Filtering
+    // ========================================================================
+    
+    // Pre-load all buffer values into registers
+    __m256 b0 = h->buf[0];
+    __m256 b1 = h->buf[1];
+    __m256 b2 = h->buf[2];
+    __m256 b3 = h->buf[3];
+    __m256 b4 = h->buf[4];
+    __m256 b5 = h->buf[5];
+    __m256 b6 = h->buf[6];
+    __m256 b7 = h->buf[7];
+    __m256 b8 = h->buf[8];
+    
+    // Compute median and MAD (pure register-level operations)
+    __m256 med, mad;
+    median_and_mad9_simd(b0, b1, b2, b3, b4, b5, b6, b7, b8, &med, &mad);
+    
+    // Outlier detection: |x - median| > NSIGMA * K * MAD
+    __m256 diff = fabs_simd(_mm256_sub_ps(x_safe, med));
+    __m256 thresh = _mm256_mul_ps(h->nsigma_k, mad);
+    
+    // Use _CMP_GT_OS for signaling NaN handling (robustness)
+    __m256 outlier_mask = _mm256_cmp_ps(diff, thresh, _CMP_GT_OS);
+    
+    #ifndef HAMPEL_NO_DIAGNOSTICS
+    int outlier_bits = _mm256_movemask_ps(outlier_mask);
+    if (outlier_bits) h->outliers += __builtin_popcount(outlier_bits);
+    #endif
+    
+    // Replace outliers with median
+    __m256 filtered = _mm256_blendv_ps(x_safe, med, outlier_mask);
+    
+    // ========================================================================
+    // Improvement B: Selective Cache Update (Bug Fix!)
+    // ========================================================================
+    // Only update cache for lanes that had valid input
+    // This prevents corruption when a lane has intermittent NaN inputs
+    h->last_median = _mm256_blendv_ps(filtered, h->last_median, bad_input_mask);
+    h->last_mad = _mm256_blendv_ps(mad, h->last_mad, bad_input_mask);  // ← CRITICAL FIX!
+    
+    // Restore NaN markers in output (downstream needs to know data was missing)
+    return _mm256_blendv_ps(filtered, x_batch, nan_mask);
+}
 
     /**
      * @brief Get diagnostic statistics
